@@ -29,6 +29,7 @@ def upload(path):
     return response.json()
 
 
+
 #mobsf 인증서 설치 
 def install_root_ca():
     """MobSF Root CA 설치"""
@@ -86,11 +87,7 @@ def json_resp(hash):
 
 
 
-
-
-
 ########동적검사#############
-
 
 
 #get app
@@ -183,15 +180,23 @@ def mobsfy(hash):
     print(f"MobSFy Android Runtime Environment 완료")
 
 
-def stop_dynamic(hash):
-    """Stop dynamic Analysis"""
-    print("stop dynamic Analysis")
+
+# Frida Get Runtime Dependencies
+def get_dependencies(hash):
+    """Get Runtime Dependencies using Frida API"""
+    print("프리다 종속성검사")
     data = {"hash": hash}
     headers = {'Authorization': APIKEY}
-    response = requests.post(SERVER + '/api/v1/dynamic/stop_analysis', data=data, headers=headers)
-    # print(f"Stop dynamic Analysis Response: {response.json()}")
-    print(f"동적분석 종료")
-    #joson_rep_dyn(hash)
+    response = requests.post(SERVER + '/api/v1/frida/get_dependencies', data=data, headers=headers)
+
+    if response.status_code == 200:
+        print("Runtime dependencies collected successfully.")
+        return response.json()
+    else:
+        print(f"Failed to get runtime dependencies: {response.status_code}")
+        print(f"Error message: {response.json().get('error')}")
+        return None
+
 
 
 def frida_instrument(hash):
@@ -205,6 +210,48 @@ def frida_instrument(hash):
             RootCheckClass.k.implementation = function () {
                 console.log("Bypassing root check");
                 return false;  
+            };
+            
+        });
+        """
+    headers = {'Authorization': APIKEY}
+    data = {
+        "hash": hash,
+        "default_hooks": " ",  # 기본 훅 추가
+        "auxiliary_hooks": " ",
+        "frida_code": bypass_script
+    }
+
+    response = requests.post(SERVER + '/api/v1/frida/instrument', data=data, headers=headers)
+    return response
+
+
+def frida_instrument2(hash):
+    """Frida Script Execution"""
+    print("프리다 스크립트 실행")
+
+    bypass_script = """
+        Java.perform(function () {
+
+            var dexClass = Java.use('com.ldjSxw.heBbQd.pupsPVlBod');
+
+            // m1781k 메서드의 구현을 수정
+            dexClass.k.implementation = function (xZip, mDir, mLister) {
+                // 원래 구현을 호출하여 ZIP 파일을 처리합니다.
+                this.k(xZip, mDir, mLister);
+
+                // m1780j 메서드를 후킹하여 조건을 수정합니다.
+                var originalj = this.j;
+                this.j.implementation = function (zipFile, zipEntry, file, mLister) {
+                    var fileName = file.getName();
+                    // 모든 .dex 파일을 특별한 처리하지 않고 일반적으로 처리하게 함
+                    if (!fileName.equals("classes.dex") && fileName.endsWith(".dex")) {
+                        // do nothing, skip special processing for non-classes.dex .dex files
+                    } else {
+                        // classes.dex 또는 .dex가 아닌 파일들에 대해 원래 메서드를 호출
+                        originalj.call(this, zipFile, zipEntry, file, mLister);
+                    }
+                };
             };
         });
         """
@@ -221,17 +268,15 @@ def frida_instrument(hash):
 
 
 
-
-
-
-# # 동적 분석 JSON 보고서 생성
-# def joson_rep_dyn(hash):
-#     """Dynamic Analysis Json Report"""
-#     print("Dynamic Analysis JSON Report")
-#     data = {"hash": hash}
-#     headers = {'Authorization': APIKEY}
-#     response = requests.post(SERVER + '/api/v1/dynamic/report_json', data=data, headers=headers)
-#     print(f"Dynamic Analysis JSON Report")
+def stop_dynamic(hash):
+    """Stop dynamic Analysis"""
+    print("stop dynamic Analysis")
+    data = {"hash": hash}
+    headers = {'Authorization': APIKEY}
+    response = requests.post(SERVER + '/api/v1/dynamic/stop_analysis', data=data, headers=headers)
+    # print(f"Stop dynamic Analysis Response: {response.json()}")
+    print(f"동적분석 종료")
+    joson_rep_dyn(hash)
 
 
 
@@ -279,15 +324,33 @@ def delete(hash):
 
 
 
-# 메인 함수
 def main():
-    
     repackaged_apk_path = apktool.main()
     path = repackaged_apk_path
-    
-    try:
-        # apktool.main()  # apktool 기능을 실행하여 APK 디컴파일 및 리패키징 수행
 
+    
+ # 첫 번째 APK 파일의 고정된 경로
+    path_static_only = r'C:\Users\82106\Downloads\testAPK\sample_export\pgsHZz.apk'
+
+    # MobSF Root CA 설치 (공통)
+    install_root_ca()
+
+    # 첫 번째 APK 파일에 대해 정적 분석과 PDF 리포트 생성 수행
+    try:
+        # 첫 번째 APK 파일에 대해 정적 분석 수행
+        RES_static = upload(path_static_only)
+        print("pgsHZz.apk 업로드 완료")
+        HASH_static = scan(RES_static)
+        json_resp(HASH_static)
+        pdf(HASH_static)
+
+    except FileNotFoundError:
+        print("첫 번째 파일을 찾을 수 없습니다.")
+    except Exception as e:
+        print(f"첫 번째 파일에 대해 오류가 발생했습니다: {str(e)}")
+    
+    # 두 번째 APK 파일 경로 설정 및 처리
+    try:
         # MobSF Root CA 설치
         install_root_ca()
         
@@ -303,25 +366,22 @@ def main():
         start_dynamic(HASH)
         mobsfy(HASH)
 
-        tls_ssl(HASH)
-        # frida_instrument(HASH)
+        # tls_ssl(HASH)
+        frida_instrument(HASH)
         
         # 활동 테스트
         activity_tester(HASH, "exported")
-        frida_instrument(HASH)
         activity_tester(HASH, "exported")
-        activity_tester(HASH, "exported")
-
+        
+        # frida_instrument(HASH)
 
         stop_dynamic(HASH)
-        joson_rep_dyn(HASH)
-
-        # delete(HASH)
+        delete(HASH)
 
     except FileNotFoundError:
-        print("파일을 찾을 수 없습니다.")
+        print("두 번째 파일을 찾을 수 없습니다.")
     except Exception as e:
-        print(f"오류가 발생했습니다: {str(e)}")
+        print(f"두 번째 파일에 대해 오류가 발생했습니다: {str(e)}")
 
 if __name__== "__main__":
     main()
